@@ -176,6 +176,7 @@ class Queue extends CliQueue
      * @var string
      */
     public $queueName = 'interop_queue';
+
     /**
      * Setting optional arguments for the queue (key-value pairs)
      * ```php
@@ -234,6 +235,10 @@ class Queue extends CliQueue
      * @var string command class name
      */
     public $commandClass = Command::class;
+
+    public $mode = 'consume'; // Or get
+
+    public $maxPriority = 10;
 
     /**
      * Headers to send along with the message
@@ -307,6 +312,11 @@ class Queue extends CliQueue
      */
     public function listen()
     {
+        if ($this->mode === 'get') {
+            $this->listenGet();
+            return;
+        }
+
         $this->open();
         $this->setupBroker();
 
@@ -343,6 +353,69 @@ class Queue extends CliQueue
         $subscriptionConsumer->consume();
     }
 
+    protected function listenGet()
+    {
+        $this->open();
+        $this->setupBroker();
+
+        if (!($this->context instanceof \Enqueue\AmqpExt\AmqpContext)) {
+            throw new \Exception('Get method not implemented for this driver');
+        }
+
+        $queueNames = [$this->queueName];
+        for ($priority = 1; $priority <= $this->maxPriority; $priority++) {
+            $queueNames[] = $this->getQueueForPriority($priority);
+        }
+            
+        /**
+         * @var AMQPQueue[] $queues
+         */
+        $queues = [];
+        foreach ($queueNames as $queueName) {
+            $queue = new \AMQPQueue($this->getContext()->getExtChannel());
+            $queue->setName($queueName);
+            $queues[] = $queue;
+        }
+
+        while (true) {
+            pcntl_signal_dispatch();
+
+            foreach ($queues as $queue) {
+                $envelope = $queue->get();
+                if ($envelope) {
+                    $message = $this->context->convertMessage($envelope);
+
+                    if ($message->isRedelivered()) {
+                        $queue->ack($message->getDeliveryTag());
+                        $this->redeliver($message);
+                        continue;
+                    }
+
+                    $ttr = $message->getProperty(self::TTR);
+                    $attempt = $message->getProperty(self::ATTEMPT, 1);
+
+                    if ($this->handleMessage($message->getMessageId(), $message->getBody(), $ttr, $attempt)) {
+                        $queue->ack($message->getDeliveryTag());
+                    } else {
+                        $queue->ack($message->getDeliveryTag());
+                        $this->redeliver($message);
+                    }
+
+                    break;
+                }
+            }
+
+            pcntl_signal_dispatch();
+            usleep(50000);
+        }
+//        $queue = $this->context->createQueue($this->queueName);
+//        $queue->cha
+//        $q = new \AMQPQueue($this->getContext()->getExtChannel());
+//        $m = $q->get();
+//        var_dump($this->context->convertMessage($m));
+//        exit;
+    }
+
     /**
      * @return AmqpContext
      */
@@ -361,7 +434,7 @@ class Queue extends CliQueue
         $this->open();
         $this->setupBroker();
 
-        $topic = $this->context->createTopic($this->exchangeName);
+        $topic = $this->context->createTopic($this->getExchangeForPriority($priority));
 
         $message = $this->context->createMessage($payload);
         $message->setDeliveryMode(AmqpMessage::DELIVERY_MODE_PERSISTENT);
@@ -402,6 +475,24 @@ class Queue extends CliQueue
     public function status($id)
     {
         throw new NotSupportedException('Status is not supported in the driver.');
+    }
+
+    protected function getExchangeForPriority(int $priority)
+    {
+        if (!$priority || $this->mode !== 'get') {
+            return $this->exchangeName;
+        }
+
+        return $this->exchangeName . '-priority-' . $priority;
+    }
+
+    protected function getQueueForPriority(int $priority)
+    {
+        if (!$priority || $this->mode !== 'get') {
+            return $this->queueName;
+        }
+
+        return $this->queueName . '-priority-' . $priority;
     }
 
     /**
@@ -471,17 +562,23 @@ class Queue extends CliQueue
             return;
         }
 
-        $queue = $this->context->createQueue($this->queueName);
-        $queue->setFlags($this->queueFlags);
-        $queue->setArguments($this->queueOptionalArguments);
-        $this->context->declareQueue($queue);
+        for ($priority = 0; $priority <= $this->maxPriority; $priority++) {
+            $queueName = $this->getQueueForPriority($priority);
+            $exchangeName = $this->getExchangeForPriority($priority);
 
-        $topic = $this->context->createTopic($this->exchangeName);
-        $topic->setType($this->exchangeType);
-        $topic->setFlags($this->exchangeFlags);
-        $this->context->declareTopic($topic);
+            $queue = $this->context->createQueue($queueName);
+            $queue->setFlags($this->queueFlags);
+            $queue->setArguments($this->queueOptionalArguments);
+            $this->context->declareQueue($queue);
 
-        $this->context->bind(new AmqpBind($queue, $topic, $this->routingKey));
+            $topic = $this->context->createTopic($exchangeName);
+            $topic->setType($this->exchangeType);
+            $topic->setFlags($this->exchangeFlags);
+            $this->context->declareTopic($topic);
+
+            $this->context->bind(new AmqpBind($queue, $topic, $this->routingKey));
+        }
+
 
         $this->setupBrokerDone = true;
     }
@@ -512,7 +609,7 @@ class Queue extends CliQueue
         $newMessage->setProperty(self::ATTEMPT, ++$attempt);
 
         $this->context->createProducer()->send(
-             $this->context->createQueue($this->queueName),
+             $this->context->createQueue($this->queueName), // TODO: priority
              $newMessage
          );
     }
