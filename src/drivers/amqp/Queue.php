@@ -77,7 +77,7 @@ class Queue extends CliQueue
         $callback = function (AMQPMessage $payload) {
             $id = $payload->get('message_id');
             list($ttr, $message) = explode(';', $payload->body, 2);
-            if ($this->handleMessage($id, $message, $ttr, 1)) {
+            if ($this->handleMessage($id, $message, $ttr, 1)->status) {
                 $payload->delivery_info['channel']->basic_ack($payload->delivery_info['delivery_tag']);
             }
         };

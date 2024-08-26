@@ -11,6 +11,7 @@ use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Exception\RuntimeException as ProcessRuntimeException;
 use Symfony\Component\Process\Process;
 use yii\console\Controller;
+use yii\queue\dto\HandleMessageResult;
 use yii\queue\ExecEvent;
 
 /**
@@ -24,6 +25,12 @@ abstract class Command extends Controller
      * The exit code of the exec action which is returned when job was done.
      */
     const EXEC_DONE = 0;
+
+    /**
+     * The exit code of the exec action which is returned when job wasn't done without retry
+     */
+    const EXEC_REJECT = 1;
+
     /**
      * The exit code of the exec action which is returned when job wasn't done and wanted next attempt.
      */
@@ -143,10 +150,15 @@ abstract class Command extends Controller
      */
     public function actionExec($id, $ttr, $attempt, $pid)
     {
-        if ($this->queue->execute($id, file_get_contents('php://stdin'), $ttr, $attempt, $pid ?: null)) {
+        $result = $this->queue->execute($id, file_get_contents('php://stdin'), $ttr, $attempt, $pid ?: null);
+        if ($result->status) {
             return self::EXEC_DONE;
         }
-        return self::EXEC_RETRY;
+        if ($result->retry) {
+            return self::EXEC_RETRY;
+        }
+
+        return self::EXEC_REJECT;
     }
 
     /**
@@ -156,7 +168,7 @@ abstract class Command extends Controller
      * @param string $message
      * @param int $ttr time to reserve
      * @param int $attempt number
-     * @return bool
+     * @return HandleMessageResult
      * @throws
      * @see actionExec()
      */
@@ -191,10 +203,13 @@ abstract class Command extends Controller
                     $this->stdout($buffer);
                 }
             });
-            if (!in_array($result, [self::EXEC_DONE, self::EXEC_RETRY])) {
+            if (!in_array($result, [self::EXEC_DONE, self::EXEC_RETRY, self::EXEC_REJECT])) {
                 throw new ProcessFailedException($process);
             }
-            return $result === self::EXEC_DONE;
+            return new HandleMessageResult([
+                'status' => $result === self::EXEC_DONE,
+                'retry' => $result === self::EXEC_RETRY,
+            ]);
         } catch (ProcessRuntimeException $error) {
             list($job) = $this->queue->unserializeMessage($message);
             return $this->queue->handleError(new ExecEvent([

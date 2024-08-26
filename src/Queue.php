@@ -13,6 +13,7 @@ use yii\base\InvalidArgumentException;
 use yii\base\InvalidConfigException;
 use yii\di\Instance;
 use yii\helpers\VarDumper;
+use yii\queue\dto\HandleMessageResult;
 use yii\queue\serializers\PhpSerializer;
 use yii\queue\serializers\SerializerInterface;
 
@@ -223,9 +224,9 @@ abstract class Queue extends Component
      * @param string $message
      * @param int $ttr time to reserve
      * @param int $attempt number
-     * @return bool
+     * @return HandleMessageResult
      */
-    protected function handleMessage($id, $message, $ttr, $attempt)
+    protected function handleMessage($id, $message, $ttr, $attempt): HandleMessageResult
     {
         list($job, $error) = $this->unserializeMessage($message);
         $event = new ExecEvent([
@@ -237,7 +238,9 @@ abstract class Queue extends Component
         ]);
         $this->trigger(self::EVENT_BEFORE_EXEC, $event);
         if ($event->handled) {
-            return true;
+            return new HandleMessageResult([
+                'status' => true,
+            ]);
         }
         if ($event->error) {
             return $this->handleError($event);
@@ -252,7 +255,9 @@ abstract class Queue extends Component
             return $this->handleError($event);
         }
         $this->trigger(self::EVENT_AFTER_EXEC, $event);
-        return true;
+        return new HandleMessageResult([
+            'status' => true,
+        ]);
     }
 
     /**
@@ -282,7 +287,7 @@ abstract class Queue extends Component
 
     /**
      * @param ExecEvent $event
-     * @return bool
+     * @return HandleMessageResult
      * @internal
      */
     public function handleError(ExecEvent $event)
@@ -294,7 +299,10 @@ abstract class Queue extends Component
             $event->retry = $event->job->canRetry($event->attempt, $event->error);
         }
         $this->trigger(self::EVENT_AFTER_ERROR, $event);
-        return !$event->retry;
+        return new HandleMessageResult([
+            'status' => false,
+            'retry' => $event->retry,
+        ]);
     }
 
     /**

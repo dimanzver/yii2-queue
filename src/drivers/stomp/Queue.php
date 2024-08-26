@@ -178,7 +178,7 @@ class Queue extends CliQueue
                     $ttr = $message->getProperty(self::TTR, $this->ttr);
                     $attempt = $message->getProperty(self::ATTEMPT, 1);
 
-                    if ($this->handleMessage($message->getMessageId(), $message->getBody(), $ttr, $attempt)) {
+                    if ($this->handleMessage($message->getMessageId(), $message->getBody(), $ttr, $attempt)->status) {
                         $consumer->acknowledge($message);
                     } else {
                         $consumer->acknowledge($message);

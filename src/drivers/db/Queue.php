@@ -81,7 +81,7 @@ class Queue extends CliQueue
                         $payload['job'],
                         $payload['ttr'],
                         $payload['attempt']
-                    )) {
+                    )->status) {
                         $this->release($payload);
                     }
                 } elseif (!$repeat) {

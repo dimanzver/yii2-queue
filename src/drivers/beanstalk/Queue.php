@@ -59,7 +59,7 @@ class Queue extends CliQueue
                         $payload->getData(),
                         $info->ttr,
                         $info->reserves
-                    )) {
+                    )->status) {
                         $this->getPheanstalk()->delete($payload);
                     }
                 } elseif (!$repeat) {

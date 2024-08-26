@@ -94,7 +94,7 @@ class Queue extends CliQueue
                     $message = $payload['Body'];
                     $ttr = (int) $payload['MessageAttributes']['TTR']['StringValue'];
                     $attempt = (int) $payload['Attributes']['ApproximateReceiveCount'];
-                    if ($this->handleMessage($id, $message, $ttr, $attempt)) {
+                    if ($this->handleMessage($id, $message, $ttr, $attempt)->status) {
                         $this->delete($payload);
                     }
                 } elseif (!$repeat) {
@@ -181,7 +181,7 @@ class Queue extends CliQueue
      */
     public function handle($id, $message, $ttr, $attempt)
     {
-        return $this->handleMessage($id, $message, $ttr, $attempt);
+        return $this->handleMessage($id, $message, $ttr, $attempt)->status;
     }
 
     /**

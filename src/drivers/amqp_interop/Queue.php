@@ -326,12 +326,15 @@ class Queue extends CliQueue
             $ttr = $message->getProperty(self::TTR);
             $attempt = $message->getProperty(self::ATTEMPT, 1);
 
-            if ($this->handleMessage($message->getMessageId(), $message->getBody(), $ttr, $attempt)) {
+            $result = $this->handleMessage($message->getMessageId(), $message->getBody(), $ttr, $attempt);
+            if ($result->status) {
                 $consumer->acknowledge($message);
-            } else {
+            } elseif($result->retry) {
                 $consumer->acknowledge($message);
 
                 $this->redeliver($message);
+            } else {
+                $consumer->reject($message);
             }
             pcntl_signal_dispatch();
 

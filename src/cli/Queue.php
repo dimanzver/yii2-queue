@@ -12,6 +12,7 @@ use yii\base\BootstrapInterface;
 use yii\base\InvalidConfigException;
 use yii\console\Application as ConsoleApp;
 use yii\helpers\Inflector;
+use yii\queue\dto\HandleMessageResult;
 use yii\queue\Queue as BaseQueue;
 
 /**
@@ -138,7 +139,7 @@ abstract class Queue extends BaseQueue implements BootstrapInterface
     /**
      * @inheritdoc
      */
-    protected function handleMessage($id, $message, $ttr, $attempt)
+    protected function handleMessage($id, $message, $ttr, $attempt): HandleMessageResult
     {
         if ($this->messageHandler) {
             return call_user_func($this->messageHandler, $id, $message, $ttr, $attempt);
@@ -153,7 +154,7 @@ abstract class Queue extends BaseQueue implements BootstrapInterface
      * @param int $ttr time to reserve
      * @param int $attempt number
      * @param int|null $workerPid of worker process
-     * @return bool
+     * @return HandleMessageResult
      * @internal for worker command only
      */
     public function execute($id, $message, $ttr, $attempt, $workerPid)
