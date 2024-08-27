@@ -539,7 +539,14 @@ class Queue extends CliQueue
 
     protected function setupPriorityQueues()
     {
-        // TODO: check performance
+        $cache = Yii::$app->hasProperty('cache') ?
+            Yii::$app->cache : 
+            null;
+        
+        if ($cache && $cache->get('setupPriorityQueues')) {
+            return;
+        }
+
         foreach ($this->priorityQueues as $queueName => $params) {
             if ($queueName === $this->queueName) {
                 continue;
@@ -559,6 +566,10 @@ class Queue extends CliQueue
             $this->context->declareTopic($topic);
 
             $this->context->bind(new AmqpBind($queue, $topic, $this->routingKey));
+        }
+        
+        if ($cache) {
+            $cache->set('setupPriorityQueues', 1);
         }
     }
 
