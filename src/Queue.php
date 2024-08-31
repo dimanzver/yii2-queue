@@ -82,6 +82,7 @@ abstract class Queue extends Component
     private $pushTtr;
     private $pushDelay;
     private $pushPriority;
+    protected $pushQueue = null;
 
 
     /**
@@ -144,6 +145,18 @@ abstract class Queue extends Component
     {
         $this->pushPriority = $value;
         return $this;
+    }
+
+    /**
+     * Sets queue to push
+     * @param string $queue
+     * @return Queue
+     */
+    public function onQueue(string $queue)
+    {
+        $new = (clone $this);
+        $new->pushQueue = $queue;
+        return $new;
     }
 
     /**

@@ -440,11 +440,19 @@ class Queue extends CliQueue
 
     protected function getExchangeForPriority(?int $priority)
     {
+        if ($this->pushQueue) {
+            return $this->pushQueue . '-exchange';
+        }
+
         if (!$priority) {
             return $this->exchangeName;
         }
 
         foreach ($this->priorityQueues as $queueName => $params) {
+            if ($queueName === $this->queueName) {
+                continue;
+            }
+
             if (!empty($params['priority']) && $params['priority'] === $priority) {
                 return $queueName . "-exchange";
             }
@@ -540,10 +548,11 @@ class Queue extends CliQueue
     protected function setupPriorityQueues()
     {
         $cache = Yii::$app->hasProperty('cache') ?
-            Yii::$app->cache : 
+            Yii::$app->cache :
             null;
-        
-        if ($cache && $cache->get('setupPriorityQueues')) {
+
+        $cacheKey = 'setupPriorityQueues' . $this->queueName;
+        if ($cache && $cache->get($cacheKey)) {
             return;
         }
 
@@ -567,9 +576,9 @@ class Queue extends CliQueue
 
             $this->context->bind(new AmqpBind($queue, $topic, $this->routingKey));
         }
-        
+
         if ($cache) {
-            $cache->set('setupPriorityQueues', 1);
+            $cache->set($cacheKey, 1);
         }
     }
 
