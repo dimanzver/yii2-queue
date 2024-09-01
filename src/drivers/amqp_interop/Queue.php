@@ -251,7 +251,7 @@ class Queue extends CliQueue
     public $setMessageHeaders = [];
 
     /**
-     * Additional queues with priority
+     * Additional queues
      * ```php
      * [
      *     'high_priority_queue' => ['priority' => 10, 'queueFlags' => AmqpQueue::FLAG_DURABLE, 'queueOptionalArguments' => []],
@@ -260,7 +260,7 @@ class Queue extends CliQueue
      * ```
      * @var array
      */
-    public $priorityQueues = [];
+    public $additionalQueues = [];
 
     /**
      * Amqp interop context.
@@ -342,7 +342,7 @@ class Queue extends CliQueue
             $result = $this->handleMessage($message->getMessageId(), $message->getBody(), $ttr, $attempt);
             if ($result->status) {
                 $consumer->acknowledge($message);
-            } elseif($result->retry) {
+            } elseif ($result->retry) {
                 $consumer->acknowledge($message);
 
                 $this->redeliver($message);
@@ -364,7 +364,7 @@ class Queue extends CliQueue
 
     protected function subscribePrioritiesQueues(SubscriptionConsumer $subscriptionConsumer, $callback)
     {
-        foreach ($this->priorityQueues as $queueName => $params) {
+        foreach ($this->additionalQueues as $queueName => $params) {
             $queue = $this->context->createQueue($queueName);
             $queue->setArguments([
                 'x-priority' => $params['priority'],
@@ -395,7 +395,7 @@ class Queue extends CliQueue
         $this->open();
         $this->setupBroker();
 
-        $topic = $this->context->createTopic($this->getExchangeForPriority($priority));
+        $topic = $this->context->createTopic($this->getPushExchange());
 
         $message = $this->context->createMessage($payload);
         $message->setDeliveryMode(AmqpMessage::DELIVERY_MODE_PERSISTENT);
@@ -438,24 +438,10 @@ class Queue extends CliQueue
         throw new NotSupportedException('Status is not supported in the driver.');
     }
 
-    protected function getExchangeForPriority(?int $priority)
+    protected function getPushExchange()
     {
-        if ($this->pushQueue) {
+        if ($this->pushQueue && $this->pushQueue !== $this->queueName) {
             return $this->pushQueue . '-exchange';
-        }
-
-        if (!$priority) {
-            return $this->exchangeName;
-        }
-
-        foreach ($this->priorityQueues as $queueName => $params) {
-            if ($queueName === $this->queueName) {
-                continue;
-            }
-
-            if (!empty($params['priority']) && $params['priority'] === $priority) {
-                return $queueName . "-exchange";
-            }
         }
 
         return $this->exchangeName;
@@ -540,23 +526,23 @@ class Queue extends CliQueue
 
         $this->context->bind(new AmqpBind($queue, $topic, $this->routingKey));
 
-        $this->setupPriorityQueues();
+        $this->setupAdditionalQueues();
 
         $this->setupBrokerDone = true;
     }
 
-    protected function setupPriorityQueues()
+    protected function setupAdditionalQueues()
     {
         $cache = Yii::$app->hasProperty('cache') ?
             Yii::$app->cache :
             null;
 
-        $cacheKey = 'setupPriorityQueues' . $this->queueName;
+        $cacheKey = 'setupAdditionalQueues' . $this->queueName;
         if ($cache && $cache->get($cacheKey)) {
             return;
         }
 
-        foreach ($this->priorityQueues as $queueName => $params) {
+        foreach ($this->additionalQueues as $queueName => $params) {
             if ($queueName === $this->queueName) {
                 continue;
             }
