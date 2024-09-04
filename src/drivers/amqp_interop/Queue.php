@@ -441,6 +441,9 @@ class Queue extends CliQueue
     protected function getPushExchange()
     {
         if ($this->pushQueue && $this->pushQueue !== $this->queueName) {
+            if (!isset($this->additionalQueues[$this->pushQueue])) {
+                throw new \InvalidArgumentException("Queue $this->pushQueue not found");
+            }
             return $this->pushQueue . '-exchange';
         }
 
