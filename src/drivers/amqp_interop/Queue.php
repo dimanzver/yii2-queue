@@ -261,6 +261,8 @@ class Queue extends CliQueue
      * @var array
      */
     public $additionalQueues = [];
+    
+    public $useCache = false;
 
     /**
      * Amqp interop context.
@@ -541,7 +543,7 @@ class Queue extends CliQueue
             null;
 
         $cacheKey = 'setupAdditionalQueues' . $this->queueName;
-        if ($cache && $cache->get($cacheKey)) {
+        if ($this->useCache && $cache && $cache->get($cacheKey)) {
             return;
         }
 
