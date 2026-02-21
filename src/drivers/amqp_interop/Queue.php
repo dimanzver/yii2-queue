@@ -261,8 +261,12 @@ class Queue extends CliQueue
      * @var array
      */
     public $additionalQueues = [];
-    
+
+    /** @var bool Cache for the additional queues initialization */
     public $useCache = false;
+
+    /** @var bool Send heartbeat async on pcntl signal. Actual for amqp-lib driver */
+    public $heartbeatOnPcntlSignal = false;
 
     /**
      * Amqp interop context.
@@ -295,26 +299,7 @@ class Queue extends CliQueue
             $this->close();
         });
 
-        if (extension_loaded('pcntl') && function_exists('pcntl_signal') && PHP_MAJOR_VERSION >= 7) {
-            // https://github.com/php-amqplib/php-amqplib#unix-signals
-            $signals = [SIGTERM, SIGQUIT, SIGINT, SIGHUP];
-
-            foreach ($signals as $signal) {
-                $oldHandler = null;
-                // This got added in php 7.1 and might not exist on all supported versions
-                if (function_exists('pcntl_signal_get_handler')) {
-                    $oldHandler = pcntl_signal_get_handler($signal);
-                }
-
-                pcntl_signal($signal, static function ($signal) use ($oldHandler) {
-                    if ($oldHandler && is_callable($oldHandler)) {
-                        $oldHandler($signal);
-                    }
-
-                    Yii::$app->end();
-                });
-            }
-        }
+        $this->listenExitSignals();
     }
 
     /**
@@ -329,7 +314,9 @@ class Queue extends CliQueue
         $consumer = $this->context->createConsumer($queue);
 
         $callback = function (AmqpMessage $message, AmqpConsumer $consumer) {
-            pcntl_signal_dispatch();
+            $exit = false;
+            $this->handleExitSignalsOnRun($exit);
+
             if ($message->isRedelivered()) {
                 $consumer->acknowledge($message);
 
@@ -351,7 +338,13 @@ class Queue extends CliQueue
             } else {
                 $consumer->reject($message);
             }
-            pcntl_signal_dispatch();
+
+            // Во время обработки сообщения послали сигнал завершения скрипта - завершаем после обработки
+            if ($exit) {
+                Yii::$app->end();
+            }
+
+            $this->listenExitSignals();
 
             return true;
         };
@@ -362,6 +355,45 @@ class Queue extends CliQueue
         $this->subscribePrioritiesQueues($subscriptionConsumer, $callback);
 
         $subscriptionConsumer->consume();
+    }
+
+    /**
+     * Прослушивание сигналов завершения скрипта
+     * @return void
+     * @throws \yii\base\ExitException
+     */
+    protected function listenExitSignals()
+    {
+        if (extension_loaded('pcntl') && function_exists('pcntl_signal') && PHP_MAJOR_VERSION >= 7) {
+            // https://github.com/php-amqplib/php-amqplib#unix-signals
+            $signals = [SIGTERM, SIGQUIT, SIGINT, SIGHUP];
+
+            foreach ($signals as $signal) {
+                pcntl_signal($signal, static function ($signal) {
+                    Yii::$app->end();
+                });
+            }
+        }
+    }
+
+    /**
+     * На время выполнения джобы избегаем завершения скрипта,
+     * но после выполнения джобы завершаем скрипт, если сигнал приходил
+     * @param bool $exit
+     * @return void
+     */
+    protected function handleExitSignalsOnRun(bool &$exit)
+    {
+        if (extension_loaded('pcntl') && function_exists('pcntl_signal') && PHP_MAJOR_VERSION >= 7) {
+            // https://github.com/php-amqplib/php-amqplib#unix-signals
+            $signals = [SIGTERM, SIGQUIT, SIGINT, SIGHUP];
+
+            foreach ($signals as $signal) {
+                pcntl_signal($signal, static function ($signal) use (&$exit) {
+                    $exit = true;
+                });
+            }
+        }
     }
 
     protected function subscribePrioritiesQueues(SubscriptionConsumer $subscriptionConsumer, $callback)
@@ -497,6 +529,7 @@ class Queue extends CliQueue
             'ssl_cacert' => $this->sslCacert,
             'ssl_cert' => $this->sslCert,
             'ssl_key' => $this->sslKey,
+            'heartbeat_on_pcntl_signal' => $this->heartbeatOnPcntlSignal,
         ];
 
         $config = array_filter($config, function ($value) {
